@@ -1,0 +1,18 @@
+[package]
+name = "piet-remarkable"
+version = "0.1.0"
+authors = ["Volker Mische <volker.mische@gmail.com>"]
+description = "reMarkable backend for piet 2D graphics abstraction."
+edition = "2018"
+license = "MIT/Apache-2.0"
+repository = "https://github.com/vmx/piet"
+keywords = ["graphics", "2d"]
+categories = ["rendering::graphics-api"]
+
+[dependencies]
+piet = { version = "0.2.0-pre1", path = "../piet" }
+
+libremarkable = "0.4.1"
+
+[dev-dependencies]
+piet = { version = "0.2.0-pre1", path = "../piet", features = ["samples"] }
