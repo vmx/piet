@@ -1,5 +1,11 @@
 use std::borrow::Cow;
 
+use libremarkable::framebuffer::common::{
+    color as RemarkableColor, display_temp, dither_mode, mxcfb_rect, waveform_mode, DISPLAYHEIGHT,
+    DISPLAYWIDTH,
+};
+use libremarkable::framebuffer::refresh::PartialRefreshMode;
+use libremarkable::framebuffer::{self, FramebufferBase, FramebufferDraw, FramebufferRefresh};
 use piet::kurbo::{Affine, Point, Rect, Shape};
 use piet::{
     self, Color, Error, FixedGradient, ImageFormat, InterpolationMode, IntoBrush, StrokeStyle,
@@ -11,12 +17,17 @@ pub use crate::text::{Text, TextLayout};
 
 type Result<T> = std::result::Result<T, Error>;
 
+fn to_remarkable_color(color: Color) -> RemarkableColor {
+    let (red, green, blue, _alpha) = color.as_rgba8();
+    RemarkableColor::RGB(red, green, blue)
+}
+
 #[derive(Clone, Debug)]
 pub enum Brush {
     Solid(u32),
 }
 
-impl IntoBrush<RenderContext> for Brush {
+impl<'a> IntoBrush<RenderContext<'_>> for Brush {
     fn make_brush<'b>(
         &'b self,
         _piet: &mut RenderContext,
@@ -30,11 +41,33 @@ impl IntoBrush<RenderContext> for Brush {
 /// reMarkable image (unimplemented)
 pub struct Image(());
 
-pub struct RenderContext {}
+pub struct RenderContext<'a> {
+    framebuffer: framebuffer::core::Framebuffer<'a>,
+}
 
-impl RenderContext {}
+impl<'a> RenderContext<'_> {
+    /// Construct an empty `RenderContext`
+    pub fn new() -> Self {
+        let mut framebuffer = framebuffer::core::Framebuffer::new("/dev/fb0");
+        println!("vmx: frambuffer created");
 
-impl piet::RenderContext for RenderContext {
+        println!("vmx: clear frambuffer");
+        framebuffer.clear();
+
+        println!("vmx: refresh frambuffer");
+        framebuffer.full_refresh(
+            waveform_mode::WAVEFORM_MODE_INIT,
+            display_temp::TEMP_USE_AMBIENT,
+            dither_mode::EPDC_FLAG_USE_DITHERING_PASSTHROUGH,
+            0,
+            true,
+        );
+
+        Self { framebuffer }
+    }
+}
+
+impl piet::RenderContext for RenderContext<'_> {
     type Brush = Brush;
 
     type Text = Text;
@@ -55,8 +88,22 @@ impl piet::RenderContext for RenderContext {
     }
 
     fn clear(&mut self, color: Color) {
-        // Convert color to grayscale and paint the full canvas with it
-        unimplemented!()
+        let position = cgmath::Point2::new(0, 0);
+        let size = cgmath::Vector2::new(DISPLAYWIDTH.into(), DISPLAYHEIGHT.into());
+        self.framebuffer
+            .fill_rect(position, size, to_remarkable_color(color));
+
+        let draw_area = mxcfb_rect::from(position.cast().unwrap(), size);
+        let marker = self.framebuffer.partial_refresh(
+            &draw_area,
+            PartialRefreshMode::Async,
+            waveform_mode::WAVEFORM_MODE_GC16_FAST,
+            display_temp::TEMP_USE_REMARKABLE_DRAW,
+            dither_mode::EPDC_FLAG_USE_DITHERING_PASSTHROUGH,
+            0,
+            false,
+        );
+        self.framebuffer.wait_refresh_complete(marker);
     }
 
     fn stroke(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>, width: f64) {
